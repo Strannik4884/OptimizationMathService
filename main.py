@@ -1,8 +1,13 @@
 # подключение необходимых зависимостей
 import csv
+import json
 import numpy as np
-import matplotlib.pyplot as plt
+from flask import Flask
 from scipy.optimize import minimize
+from werkzeug.serving import WSGIRequestHandler
+from config import Config
+
+app = Flask(__name__)
 
 
 # класс для хранения значения выделяемой тепловой мощности в момент времени x
@@ -51,7 +56,7 @@ offsetsValues = [0, -6, 9, -15, -12, 7, 12, -3]
 offsets = convertOffsetsToDict(offsetsValues, equipment.keys())
 
 
-# функция для рассчёта минимального тепловыделения группы оборудования в зависимости от их смещения
+# функция для рассчёта минимального тепловыделения от группы оборудования в зависимости от их смещения
 def getMinimumThermalPower(local_offsets):
     # тепловая характеристика всего оборудования
     equipmentQ = []
@@ -106,17 +111,6 @@ def getMinimumThermalPower(local_offsets):
     return Qmin
 
 
-# выводим результат
-result = getMinimumThermalPower(offsets)
-# получаем минимальную тепловую мощность за весь период работы оборудования
-resultMin = min(result)
-print(f'Текущее значение целевой функции: {resultMin}')
-
-plt.plot([i for i in range(0, TIME_PERIOD)], result)
-plt.plot([i for i in range(0, TIME_PERIOD)], [resultMin for i in range(0, TIME_PERIOD)])
-plt.show()
-
-
 # целевая функция - максимизация минимального тепловыделения за весь период работы оборудования
 def objectiveFunction(local_offsets):
     local_offsets = [round(i) for i in local_offsets]
@@ -125,24 +119,48 @@ def objectiveFunction(local_offsets):
     return -min(Qmin)
 
 
-# список ограничений, накладываемых на переменные
-restrictions = []
-for i in range(0, len(offsets)):
-    restrictions.append((-14., 14.))
-# начальное смещение оборудования
-x0 = []
-for i in range(len(offsets)):
-    x0.append(0.)
+# поиск оптимальных смещений оборудования
+def optimize():
+    # список ограничений, накладываемых на переменные
+    restrictions = []
+    for i in range(0, len(offsets)):
+        restrictions.append((-14., 14.))
+    # начальное смещение оборудования
+    x0 = []
+    for i in range(len(offsets)):
+        x0.append(0.)
+    # применяем метод Пауэлла для минимизации целевой функции (решается обратная задача)
+    result = minimize(objectiveFunction, x0=np.array(x0), method='powell', bounds=restrictions)
+    # округляем смещения
+    resultX = [round(i) for i in result.x]
+    # получаем минимальное значение тепловыделений группы оборудования за весь период работы
+    resultY = -result.fun
+    return resultX, resultY
 
-# применяем метод Паулла для минимизации целевой функции (решается обратная задача)
-result = minimize(objectiveFunction, x0=np.array(x0), method='powell', bounds=restrictions)
-# округляем смещения
-resultX = [round(i) for i in result.x]
-# получаем минимальное значение тепловыделений группы оборудования за весь период работы
-resultY = -result.fun
-print(f'Оптимальные смещения: {resultX}')
-print(f'Значение целевой функции: {resultY}')
 
-plt.plot([i for i in range(0, TIME_PERIOD)], getMinimumThermalPower(convertOffsetsToDict(resultX, offsets.keys())))
-plt.plot([i for i in range(0, TIME_PERIOD)], [resultY for i in range(0, TIME_PERIOD)])
-plt.show()
+@app.route('/v1/optimize', methods=['GET'])
+def test():
+    result = optimize()
+    offsets_dict = convertOffsetsToDict(result[0], offsets.keys())
+    offsets_list = []
+    for offset in offsets_dict:
+        offset_dict = {}
+        offset_dict['key'] = offset
+        offset_dict['value'] = offsets_dict[offset]
+        offsets_list.append(offset_dict)
+    result_dict = {}
+    result_dict['offsets'] = offsets_list
+    result_dict['min_value'] = result[1]
+    response = app.response_class(
+        response=json.dumps(result_dict,
+                            ensure_ascii=False,
+                            default=str),
+        status=200,
+        mimetype='application/json'
+    )
+    return response
+
+
+if __name__ == '__main__':
+    WSGIRequestHandler.protocol_version = "HTTP/1.1"
+    app.run(debug=Config.debug, host=Config.host_url, port=Config.host_port)
