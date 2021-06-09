@@ -42,12 +42,15 @@ def convertOffsetsToDict(local_offsets, keys):
 
 # период работы группы оборудования
 TIME_PERIOD = 48
+# макимальный сдвиг оборудования
+MAX_OFFSET = 14.
+# минимальный сдвиг оборудования
+MIN_OFFSET = -14.
 # формируем структуру данных для хранения оборудования
 equipment = parseCSV("SourceData.csv")
 # получаем данные о текущих смещениях
 offsetsValues = [0, -6, 9, -15, -12, 7, 12, -3]
-# offsets = [0, -6, 9, -12, 7, 12, -3]
-# offsets = [-16, -13, -13, -5, 4, -9, 1, -5]
+# формируем словарь смещений
 offsets = convertOffsetsToDict(offsetsValues, equipment.keys())
 
 
@@ -109,7 +112,7 @@ def getMinimumThermalPower(local_offsets):
 # выводим результат
 result = getMinimumThermalPower(offsets)
 # получаем минимальную тепловую мощность за весь период работы оборудования
-resultMin = min(result)
+resultMin = round(min(result), 2)
 print(f'Текущее значение целевой функции: {resultMin}')
 
 plt.plot([i for i in range(0, TIME_PERIOD)], result)
@@ -128,7 +131,7 @@ def objectiveFunction(local_offsets):
 # список ограничений, накладываемых на переменные
 restrictions = []
 for i in range(0, len(offsets)):
-    restrictions.append((-14., 14.))
+    restrictions.append((MIN_OFFSET, MAX_OFFSET))
 # начальное смещение оборудования
 x0 = []
 for i in range(len(offsets)):
@@ -139,7 +142,7 @@ result = minimize(objectiveFunction, x0=np.array(x0), method='powell', bounds=re
 # округляем смещения
 resultX = [round(i) for i in result.x]
 # получаем минимальное значение тепловыделений группы оборудования за весь период работы
-resultY = -result.fun
+resultY = round(-result.fun, 2)
 print(f'Оптимальные смещения: {resultX}')
 print(f'Значение целевой функции: {resultY}')
 
