@@ -28,6 +28,10 @@ def convertOffsetsToDict(local_offsets, keys):
 
 # период работы группы оборудования
 TIME_PERIOD = 48
+# макимальный сдвиг оборудования
+MAX_OFFSET = 14.
+# минимальный сдвиг оборудования
+MIN_OFFSET = -14.
 # структура данных для хранения оборудования
 equipment = {}
 # структура данных для хранения смещений
@@ -40,7 +44,7 @@ def getMinimumThermalPower(local_offsets):
     equipmentQ = []
     # просматриваем каждое оборудование
     for key in equipment:
-        y = [j.y for j in equipment[key]]
+        y = [j.value for j in equipment[key]]
         # списки для хранения тепловой характеристики оборудования
         x_period = []
         y_period = []
@@ -102,7 +106,7 @@ def optimize():
     # список ограничений, накладываемых на переменные
     restrictions = []
     for i in range(0, len(offsets)):
-        restrictions.append((-14., 14.))
+        restrictions.append((MIN_OFFSET, MAX_OFFSET))
     # начальное смещение оборудования
     x0 = []
     for i in range(len(offsets)):
@@ -138,7 +142,7 @@ def optimizeRoute():
         offsets_list.append(offset_dict)
     result_dict = {}
     result_dict['offsets'] = offsets_list
-    result_dict['min_value'] = result[1]
+    result_dict['min_value'] = round(result[1], 2)
     result_dict['period'] = TIME_PERIOD
     response = app.response_class(
         response=json.dumps(result_dict,
