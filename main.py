@@ -127,6 +127,10 @@ def optimize():
 def getMinimumThermalPowerRoute():
     try:
         request_data = request.get_json()
+        global equipment
+        equipment = {}
+        global offsets
+        offsets = {}
         global TIME_PERIOD
         try:
             TIME_PERIOD = int(request_data['period'])
@@ -173,6 +177,10 @@ def getMinimumThermalPowerRoute():
 def optimizeRoute():
     try:
         request_data = request.get_json()
+        global equipment
+        equipment = {}
+        global offsets
+        offsets = {}
         global TIME_PERIOD
         try:
             TIME_PERIOD = int(request_data['period'])
