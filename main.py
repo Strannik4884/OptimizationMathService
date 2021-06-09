@@ -15,6 +15,9 @@ class Point:
         self.time = time
         self.value = value
 
+    def serialize(self):
+        return {"time": self.time, "value": self.value}
+
 
 # функция конвертации списка смещений оборудования к словарю
 def convertOffsetsToDict(local_offsets, keys):
@@ -120,38 +123,105 @@ def optimize():
     return resultX, resultY
 
 
+@app.route('/v1/getMinimumThermalPower', methods=['POST'])
+def getMinimumThermalPowerRoute():
+    try:
+        request_data = request.get_json()
+        global TIME_PERIOD
+        try:
+            TIME_PERIOD = int(request_data['period'])
+        except Exception:
+            pass
+        equipmentObj = request_data['equipment']
+        for e in equipmentObj:
+            offsets[e['id']] = e['offset']
+            equipment[e['id']] = []
+            for d in e['data']:
+                equipment[e['id']].append(Point(float(d['time']), float(d['value'])))
+
+        result = getMinimumThermalPower(offsets)
+        points = [Point(round(result[i], 2), i) for i in range(0, TIME_PERIOD)]
+        result_dict = {}
+        result_dict['data'] = [i.serialize() for i in points]
+        result_dict['min_value'] = round(min(result), 2)
+        result_dict['period'] = TIME_PERIOD
+        response = app.response_class(
+            response=json.dumps(result_dict,
+                                ensure_ascii=False,
+                                default=str),
+            status=200,
+            mimetype='application/json'
+        )
+        return response
+    except KeyError as e:
+        response = app.response_class(
+            response=f'{{"code":400, "message":"Not found property {e}"}}',
+            status=400,
+            mimetype='application/json'
+        )
+        return response
+    except Exception as e:
+        response = app.response_class(
+            response=f'{{"code":400, "message":"Invalid request"}}',
+            status=400,
+            mimetype='application/json'
+        )
+        return response
+
+
 @app.route('/v1/optimize', methods=['POST'])
 def optimizeRoute():
-    request_data = request.get_json()
-    global TIME_PERIOD
-    TIME_PERIOD = int(request_data['period'])
-    equipmentObj = request_data['equipment']
-    for e in equipmentObj:
-        offsets[e['id']] = e['offset']
-        equipment[e['id']] = []
-        for d in e['data']:
-            equipment[e['id']].append(Point(float(d['time']), float(d['value'])))
+    try:
+        request_data = request.get_json()
+        global TIME_PERIOD
+        try:
+            TIME_PERIOD = int(request_data['period'])
+        except Exception:
+            pass
+        equipmentObj = request_data['equipment']
+        for e in equipmentObj:
+            try:
+                offsets[e['id']] = e['offset']
+            except Exception:
+                pass
+            equipment[e['id']] = []
+            for d in e['data']:
+                equipment[e['id']].append(Point(float(d['time']), float(d['value'])))
 
-    result = optimize()
-    offsets_dict = convertOffsetsToDict(result[0], offsets.keys())
-    offsets_list = []
-    for offset in offsets_dict:
-        offset_dict = {}
-        offset_dict['key'] = offset
-        offset_dict['value'] = offsets_dict[offset]
-        offsets_list.append(offset_dict)
-    result_dict = {}
-    result_dict['offsets'] = offsets_list
-    result_dict['min_value'] = round(result[1], 2)
-    result_dict['period'] = TIME_PERIOD
-    response = app.response_class(
-        response=json.dumps(result_dict,
-                            ensure_ascii=False,
-                            default=str),
-        status=200,
-        mimetype='application/json'
-    )
-    return response
+        result = optimize()
+        offsets_dict = convertOffsetsToDict(result[0], offsets.keys())
+        offsets_list = []
+        for offset in offsets_dict:
+            offset_dict = {}
+            offset_dict['key'] = offset
+            offset_dict['value'] = offsets_dict[offset]
+            offsets_list.append(offset_dict)
+        result_dict = {}
+        result_dict['offsets'] = offsets_list
+        result_dict['min_value'] = round(result[1], 2)
+        result_dict['period'] = TIME_PERIOD
+        response = app.response_class(
+            response=json.dumps(result_dict,
+                                ensure_ascii=False,
+                                default=str),
+            status=200,
+            mimetype='application/json'
+        )
+        return response
+    except KeyError as e:
+        response = app.response_class(
+            response=f'{{"code":400, "message":"Not found property {e}"}}',
+            status=400,
+            mimetype='application/json'
+        )
+        return response
+    except Exception as e:
+        response = app.response_class(
+            response=f'{{"code":400, "message":"Invalid request"}}',
+            status=400,
+            mimetype='application/json'
+        )
+        return response
 
 
 if __name__ == '__main__':
