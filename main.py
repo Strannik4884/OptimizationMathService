@@ -1,8 +1,7 @@
 # подключение необходимых зависимостей
-import csv
 import json
 import numpy as np
-from flask import Flask
+from flask import Flask, request
 from scipy.optimize import minimize
 from werkzeug.serving import WSGIRequestHandler
 from config import Config
@@ -12,27 +11,9 @@ app = Flask(__name__)
 
 # класс для хранения значения выделяемой тепловой мощности в момент времени x
 class Point:
-    def __init__(self, x_init, y_init):
-        self.x = x_init
-        self.y = y_init
-
-
-# функция чтения данных их CSV-файла
-def parseCSV(csv_path):
-    local_equipment = {}
-    with open(csv_path, "r") as fileObj:
-        reader = csv.reader(fileObj, delimiter=';')
-        # пропускаем заголовок CSV-файла
-        next(reader, None)
-        # просматриваем каждую строку файла
-        for row in reader:
-            # если найдено новое оборудование
-            if local_equipment.get(int(row[0])) is None:
-                local_equipment[int(row[0])] = [Point(float(row[1]), float(row[2]))]
-            # если добавляем данные в уже существующую запись
-            else:
-                local_equipment[int(row[0])].append(Point(float(row[1]), float(row[2])))
-    return local_equipment
+    def __init__(self, time, value):
+        self.time = time
+        self.value = value
 
 
 # функция конвертации списка смещений оборудования к словарю
@@ -47,13 +28,10 @@ def convertOffsetsToDict(local_offsets, keys):
 
 # период работы группы оборудования
 TIME_PERIOD = 48
-# формируем структуру данных для хранения оборудования
-equipment = parseCSV("SourceData.csv")
-# получаем данные о текущих смещениях
-offsetsValues = [0, -6, 9, -15, -12, 7, 12, -3]
-# offsets = [0, -6, 9, -12, 7, 12, -3]
-# offsets = [-16, -13, -13, -5, 4, -9, 1, -5]
-offsets = convertOffsetsToDict(offsetsValues, equipment.keys())
+# структура данных для хранения оборудования
+equipment = {}
+# структура данных для хранения смещений
+offsets = {}
 
 
 # функция для рассчёта минимального тепловыделения от группы оборудования в зависимости от их смещения
@@ -107,7 +85,7 @@ def getMinimumThermalPower(local_offsets):
         for j in range(0, len(equipmentQ)):
             sum += equipmentQ[j][i]
         Qmin.append(sum)
-    # получаем минимальную тепловую мощность за весь период работы оборудования
+    # получаем тепловую мощность за весь период работы оборудования
     return Qmin
 
 
@@ -138,8 +116,18 @@ def optimize():
     return resultX, resultY
 
 
-@app.route('/v1/optimize', methods=['GET'])
-def test():
+@app.route('/v1/optimize', methods=['POST'])
+def optimizeRoute():
+    request_data = request.get_json()
+    global TIME_PERIOD
+    TIME_PERIOD = int(request_data['period'])
+    equipmentObj = request_data['equipment']
+    for e in equipmentObj:
+        offsets[e['id']] = e['offset']
+        equipment[e['id']] = []
+        for d in e['data']:
+            equipment[e['id']].append(Point(float(d['time']), float(d['value'])))
+
     result = optimize()
     offsets_dict = convertOffsetsToDict(result[0], offsets.keys())
     offsets_list = []
@@ -151,6 +139,7 @@ def test():
     result_dict = {}
     result_dict['offsets'] = offsets_list
     result_dict['min_value'] = result[1]
+    result_dict['period'] = TIME_PERIOD
     response = app.response_class(
         response=json.dumps(result_dict,
                             ensure_ascii=False,
