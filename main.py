@@ -96,6 +96,53 @@ def getMinimumThermalPower(local_offsets):
     return Qmin
 
 
+# функция для рассчёта текущего состояния каждой печи
+def getCurrentData(local_offsets, time):
+    # тепловая характеристика всего оборудования
+    equipmentQ = {}
+    # просматриваем каждое оборудование
+    for key in equipment:
+        y = [j.value for j in equipment[key]]
+        # списки для хранения тепловой характеристики оборудования
+        x_period = []
+        y_period = []
+        # смещение текущего оборудования
+        current_offset = local_offsets[key]
+        index = -current_offset
+        # формируем тепловую характеристику оборудования за весь период работы
+        for i in range(TIME_PERIOD):
+            x_period.append(i)
+            if index < 0:
+                y_period.append(0)
+                index += 1
+            else:
+                y_period.append(y[index])
+                if index == len(y) - 1:
+                    index = 0
+                else:
+                    index += 1
+        # формируем тепловую характеристику оборудования до начала действия плана оптимизации
+        index = -current_offset
+        x_pre_period = []
+        y_pre_period = []
+        for i in range(max(min(local_offsets) + 1, -24), 0):
+            x_pre_period.append(i)
+            if current_offset >= 0:
+                y_pre_period.insert(0, 0)
+            else:
+                y_pre_period.insert(0, y[index - 1])
+                if index - 1 != 0:
+                    index -= 1
+                else:
+                    current_offset = 1
+        x_period = x_pre_period + x_period
+        y_period = y_pre_period + y_period
+        # лямбда-функция для получения значения тепловой мощности в любой момент времени
+        Qt = lambda t: np.interp(t, x_period, y_period)
+        equipmentQ[key] = Qt(time)
+    return equipmentQ
+
+
 # целевая функция - максимизация минимального тепловыделения за весь период работы оборудования
 def objectiveFunction(local_offsets):
     local_offsets = [round(i) for i in local_offsets]
@@ -123,7 +170,7 @@ def optimize():
     return resultX, resultY
 
 
-@app.route('/v1/getMinimumThermalPower', methods=['POST'])
+@app.route('/api/v1/getMinimumThermalPower', methods=['POST'])
 def getMinimumThermalPowerRoute():
     try:
         request_data = request.get_json()
@@ -144,7 +191,7 @@ def getMinimumThermalPowerRoute():
                 equipment[e['id']].append(Point(float(d['time']), float(d['value'])))
 
         result = getMinimumThermalPower(offsets)
-        points = [Point(round(result[i], 2), i) for i in range(0, TIME_PERIOD)]
+        points = [Point(i, round(result[i], 2)) for i in range(0, TIME_PERIOD)]
         result_dict = {}
         result_dict['data'] = [i.serialize() for i in points]
         result_dict['min_value'] = round(min(result), 2)
@@ -173,7 +220,61 @@ def getMinimumThermalPowerRoute():
         return response
 
 
-@app.route('/v1/optimize', methods=['POST'])
+@app.route('/api/v1/getCurrentData', methods=['POST'])
+def getCurrentDataRoute():
+    try:
+        request_data = request.get_json()
+        global equipment
+        equipment = {}
+        global offsets
+        offsets = {}
+        global TIME_PERIOD
+        try:
+            TIME_PERIOD = int(request_data['period'])
+        except Exception:
+            pass
+        time = request_data['time']
+        equipmentObj = request_data['equipment']
+        for e in equipmentObj:
+            offsets[e['id']] = e['offset']
+            equipment[e['id']] = []
+            for d in e['data']:
+                equipment[e['id']].append(Point(float(d['time']), float(d['value'])))
+        result = getCurrentData(offsets, time)
+        data_list = []
+        for key in result:
+            data_dict = {}
+            data_dict['key'] = key
+            data_dict['value'] = result[key]
+            data_list.append(data_dict)
+        result_dict = {}
+        result_dict['values'] = data_list
+        result_dict['time'] = time
+        response = app.response_class(
+            response=json.dumps(result_dict,
+                                ensure_ascii=False,
+                                default=str),
+            status=200,
+            mimetype='application/json'
+        )
+        return response
+    except KeyError as e:
+        response = app.response_class(
+            response=f'{{"code":400, "message":"Not found property {e}"}}',
+            status=400,
+            mimetype='application/json'
+        )
+        return response
+    except Exception as e:
+        response = app.response_class(
+            response=f'{{"code":400, "message":"Invalid request"}}',
+            status=400,
+            mimetype='application/json'
+        )
+        return response
+
+
+@app.route('/api/v1/optimize', methods=['POST'])
 def optimizeRoute():
     try:
         request_data = request.get_json()
